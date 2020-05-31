@@ -1,9 +1,11 @@
 import os
+import bisect
 import dlib
 import cv2
 import copy
 import numpy as np
 import pandas as pd
+import unicodecsv as ucsv
 from scipy import signal
 import matplotlib.pyplot as plt
 from keras.engine.saving import model_from_json
@@ -154,7 +156,7 @@ def square_img(img):
     return f
 
 
-def analyze_video(raw_name, target):
+def analyze_video(raw_name, target, writer=None):
 
     name = raw_name + ".mov"
     # out_name = raw_name + "_Output.avi"
@@ -210,6 +212,7 @@ def analyze_video(raw_name, target):
 
     duration, detection = [], []
     num = 0
+    fps = vid.get(cv2.CAP_PROP_FPS)
     while True:
         success, img = vid.read()
         if not success:
@@ -222,8 +225,9 @@ def analyze_video(raw_name, target):
         # dnn_model.setInput(blob)
         # face = dnn_model.forward()
         # (l, w) = img.shape[:2]
+        timestamp = num / fps
         print('\r' + "Analyzing frame " + str(num) + " of " + str(length) + "   ", end='')
-        num += 1
+
 
         msc = 4096 * 4096
         detected = None
@@ -236,18 +240,21 @@ def analyze_video(raw_name, target):
 
                 if distance < msc:
                     msc = distance
-                    detected = temp_detected
+                    detected_face = temp_detected
                     detected_cdn = (x, y, w, h)
 
+        detected = -1
         if detected is None or msc > 60:
             detection.append(0)
+            detected = 0
             duration.append(-0.01)
             text = "Detection: 0"
             cv2.putText(img, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
             cv2.imwrite(out_dir + "/" + str(num) + ".jpg", img)
         else:
             detection.append(1)
-            shape = predictor(detected, dlib.rectangle(int(0), int(0), int(160), int(160)))
+            detected = 1
+            shape = predictor(detected_face, dlib.rectangle(int(0), int(0), int(160), int(160)))
 
             i = 0
             (x, y, w, h) = detected_cdn
@@ -256,7 +263,7 @@ def analyze_video(raw_name, target):
             for pt in shape.parts():
                 i += 1
                 if i >= 49:
-                    cv2.circle(img, (pt.x + x, pt.y + y), 2, (0, 255, 0), 1)
+                    cv2.circle(img, (pt.x + x, pt.y + y), 2, (0, 255, 0), 2)
                     if i == 61:
                         left = pt
                     elif i == 65:
@@ -270,12 +277,20 @@ def analyze_video(raw_name, target):
             duration.append(rate)
             text = "Detection: 1; Distance: " + str(rate)
             if rate >= 0.05:
-                cv2.putText(img, text, (150, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 3)
+                cv2.putText(img, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
             else:
                 cv2.putText(img, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-            cv2.imwrite(out_dir + "/" + str(num) + ".jpg", img)
-        # writer.write(img.astype("uint8"))
+            # cv2.imwrite(out_dir + "/" + str(num) + ".jpg", cv2.resize(img, (640, 480)))
 
+        if detected == 0:
+            detected_cdn = (-1, -1, -1, -1)
+            left = type("", (), dict(x=-1, y=-1))
+            top = right = bottom = left
+            rate = -0.01
+        if writer is not None:
+            writer.writerow([num, timestamp, detected, detected_cdn[0], detected_cdn[1], detected_cdn[2], detected_cdn[3],
+                                 left.x, left.y, top.x, top.y, right.x, right.y, bottom.x, bottom.y, rate])
+        num += 1
     # writer.release()
     return duration, detection, length
 
@@ -296,30 +311,115 @@ def calcSpeed(duration, detection):
 
 def main():
     # filepath = "E:\\Participant #1\\videos\\Week 2\\Day 5\\" # "database\\"#
+    args = ["Frame", "Timestamp", "Detection", "Face_x", "Face_y", "Face_w", "Face_h", "Mark_61_x", "Mark_61_y",
+            "Mark_63_x", "Mark_63_y", "Mark_65_x", "Mark_65_y", "Mark_67_x", "Mark_67_y", "Distance"]
+    proc_args = ["Slot_num", "State"]
+
     filepath = "D:\\Participants\\"
     filename = r"P2_Week1_Friday_7-June-2019_02_FACE" # "matt-in-the-lab-test_FACE"
     profile = r"database/P2.jpg"
     filedir = filepath + filename
     length = 0
+    duration = []
+    timestamps = []
+    wr = None
+
+    if not os.path.exists(filename + "_Video_Processed.csv"):
+        if not os.path.exists(filename + "_Video_Raw.csv"):
+            with open(filename + "_Video_Raw.csv", "wb") as f:
+                wr = ucsv.writer(f)
+                wr.writerow(args)
+                duration, detection, length = analyze_video(filedir, profile, writer=wr)
+
+        with open(filename + "_Video_Raw.csv", "r") as f:
+            category = f.readline().split(",")
+            lines = f.readlines()
+            curr = 0.0
+            timeslot = []
+            state = 0
+            for line in lines:
+                content = line.split(",")
+                timestamp = (float(content[1])) // 0.2
+                timestamps.append(float(content[1]))
+                if curr > timestamp:
+                    continue
+                elif curr+1 <= timestamp:
+                    curr += 1
+                    timeslot.append(state)
+                    state = 0
+                if int(content[2]) == 1:
+                    rate = float(content[15])
+                    if wr is None:
+                        duration.append(rate)
+                    if rate >= 0.05:
+                        state = 2
+                elif state == 0:
+                    state = 1
+                    if wr is None:
+                        duration.append(-0.01)
+
+        with open(filename + "_Video_Processed.csv", "wb") as f:
+            wr = ucsv.writer(f)
+            wr.writerow(proc_args)
+            for i in range(0, len(timeslot)):
+                wr.writerow([i, timeslot[i]])
+    else:
+        with open(filename + "_Video_Raw.csv", "r") as f:
+            category = f.readline().split(",")
+            lines = f.readlines()
+            curr = 0.0
+            timeslot = []
+            state = 0
+            for line in lines:
+                content = line.split(",")
+                t = float(content[1])
+                timestamps.append(t)
+                duration.append(float(content[15]))
+
+    slots = []
+    with open(filename + "_Video_Processed.csv", "r") as f:
+        category = f.readline().split(",")
+        lines = f.readlines()
+        for line in lines:
+            content = line.split(",")
+            slots.append(int(content[1]))
+
+    num = max(1, (len(slots) + 299) // 300)
+
+    if not os.path.exists(filepath + "Plots"):
+        os.mkdir(filepath + "Plots")
+    else:
+        os.system("rm -f " + filepath + "Plots/*")
+
+    out_dir = "D:/Participants/Out_Imgs"
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+    else:
+        os.system("rm -f " + out_dir + "/*")
+
+    for i in range(0, num):
+        fig = plt.figure(num=None, figsize=(20, 8), dpi=100)
+        axs = fig.add_subplot(111)
+        curr = i * 300
+        next = len(slots) if i == num-1 else (i+1) * 300
+        tc = bisect.bisect_left(timestamps, curr*0.2)
+        tn = bisect.bisect_left(timestamps, next*0.2)
+        axs.plot(timestamps[tc:tn], duration[tc:tn], "-o", linewidth=0.5, markersize=0.8, label="Raw data")
+        axs.step(np.arange(0.2*curr, 0.2*next, 0.2), slots[curr:next], where="post", label="Filtered")
+        axs.plot([curr*0.2, next*0.2], [0.05, 0.05], "--", linewidth=0.25)
+        plt.savefig(filepath + "Plots/Fig_" + str(i) + ".png", bbox_inches="tight")
+
+
     '''
-    if not os.path.exists(filename + ".txt"):
-        duration, detection, length = analyze_video(filedir, profile)
-        acc = calcSpeed(duration, detection)
-        f = open(filename + ".txt", "w")
-        f.write(",".join([str(_) for _ in duration]))
-        f.write("\n")
-        f.write(",".join([str(_) for _ in detection]))
-        f.flush()
-        f.close()
     else:
         f = open(filename + ".txt", "r")
         lines = f.readlines()
         duration = [float(_) for _ in lines[0].split(",")]
         detection = [bool(_) for _ in lines[1].split(",")]
         length = len(duration)
+        
         # acc = calcSpeed(duration, detection)
-    '''
-    duration, detection, length = analyze_video(filedir, profile)
+    # duration, detection, length = analyze_video(filedir, profile)
     # acc = calcSpeed(duration, detection)
     b, a = signal.butter(1, 0.1)
     duration_raw = copy.deepcopy(duration)
@@ -338,7 +438,6 @@ def main():
 
     xl = [float(_/30) for _ in range(0, length)]
 
-    '''
     const = [4, 7, 10, 17, 20, 29, 34, 38, 47, 56, 58, 60, 65, 71, 77, 102, 106, 114]
     con_i = []
     ptr = 0
@@ -348,7 +447,6 @@ def main():
             ptr += 1
         else:
             con_i.append(-0.1)
-    '''
 
     fig = plt.figure(num=None, figsize=(20, 8), dpi=100)
     ax = fig.add_subplot(111)
@@ -358,6 +456,7 @@ def main():
     # ax.plot(xl, con_i, linewidth=0.5)
     plt.show()
     # f.close()
+    '''
 
 
 if __name__ == "__main__":
