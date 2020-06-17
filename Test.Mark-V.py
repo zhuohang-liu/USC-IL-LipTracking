@@ -397,6 +397,7 @@ def main():
     else:
         os.system("rm -f " + out_dir + "/*")
 
+    plt.rcParams.update({"font.size": 22})
     for i in range(0, num):
         fig = plt.figure(num=None, figsize=(20, 8), dpi=100)
         axs = fig.add_subplot(111)
@@ -404,9 +405,16 @@ def main():
         next = len(slots) if i == num-1 else (i+1) * 300
         tc = bisect.bisect_left(timestamps, curr*0.2)
         tn = bisect.bisect_left(timestamps, next*0.2)
-        axs.plot(timestamps[tc:tn], duration[tc:tn], "-o", linewidth=0.5, markersize=0.8, label="Raw data")
-        axs.step(np.arange(0.2*curr, 0.2*next, 0.2), slots[curr:next], where="post", label="Filtered")
-        axs.plot([curr*0.2, next*0.2], [0.05, 0.05], "--", linewidth=0.25)
+        axp = axs.twinx()
+        axs.set_xlabel("Time (s)")
+        axp.set_ylabel("Distance", color="#0000ff")
+        axp.set_ylim(-0.025, 0.425)
+        axs.set_ylabel("State of timeslot", color="#ff9f00")
+        axs.set_ylim(-0.133, 2.267)
+        axs.step(np.arange(0.2*curr, 0.2*next, 0.2), slots[curr:next], linewidth=1, where="post", label="Filtered", color="#ff9f00", zorder=-10)
+        axp.plot(timestamps[tc:tn], duration[tc:tn], "-o", linewidth=1, markersize=1.5, label="Raw data", color="#0000ff", zorder=10)
+        axp.plot([curr*0.2, next*0.2], [0.05, 0.05], "--", linewidth=2.5, color="#007f00", zorder=10)
+        axs.fill_between(np.arange(0.2*curr, 0.2*next, 0.2), slots[curr:next], 0, color="#ffcf9f", zorder=-10)
         plt.savefig(filepath + "Plots/Fig_" + str(i) + ".png", bbox_inches="tight")
 
 
