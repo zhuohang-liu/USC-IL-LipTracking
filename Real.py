@@ -48,10 +48,11 @@ def square_img(img):
 # Function to analyze a video
 def analyze_video(raw_name, target, writer=None, out_dir=None):
     name = raw_name + ".mov"
-    if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
-    else:
-        os.system("rm -f " + out_dir + "/*")
+    if out_dir is not None:
+        if not os.path.exists(out_dir):
+            os.mkdir(out_dir)
+        else:
+            os.system("rm -f " + out_dir + "/*")
 
     # reading model data
     vid = cv2.VideoCapture(name)
@@ -109,7 +110,8 @@ def analyze_video(raw_name, target, writer=None, out_dir=None):
             duration.append(-0.01)
             text = "Detection: 0"
             cv2.putText(img, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-            cv2.imwrite(out_dir + "/" + str(num) + ".jpg", img)
+            if out_dir is not None:
+                cv2.imwrite(out_dir + "/" + str(num) + ".jpg", img)
         else: # if found, proceed with analyzing lip landmarks
             detection.append(1)
             detected = 1
@@ -141,7 +143,8 @@ def analyze_video(raw_name, target, writer=None, out_dir=None):
             else:
                 cv2.putText(img, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
             # uncomment the following line to output frame images of a demo video
-            # cv2.imwrite(out_dir + "/" + str(num) + ".jpg", cv2.resize(img, (640, 480)))
+            if out_dir is not None:
+                cv2.imwrite(out_dir + "/" + str(num) + ".jpg", cv2.resize(img, (640, 480)))
 
         # write frame data into .csv file
         if detected == 0:
@@ -197,11 +200,11 @@ def process_video(filepath, filename, profile_name):
     # if no .csv files can be found, analyze the videos
     if not os.path.exists(profile_name + "_Lip_Data/" + filename + "/" + filename + "_Video_Processed.csv"):
         if not os.path.exists(profile_name + "_Lip_Data/" + filename + "/" + filename + "_Video_Raw.csv"):
-            with open(profile_name + "_Lip_Data/" + filename + "_Video_Raw.csv", "wb") as f:
+            with open(profile_name + "_Lip_Data/" + filename + "/" + filename + "_Video_Raw.csv", "wb") as f:
                 wr = ucsv.writer(f)
                 wr.writerow(args)
-                duration, detection, length = analyze_video(filedir, profile, writer=wr,
-                                                out_dir=(profile_name + "_Lip_Data/" + filename + "/"))
+                duration, detection, length = analyze_video(filedir, profile, writer=wr)
+                # To output frames for demo videos, add another parameter: out_dir=(profile_name + "_Lip_Data/" + filename + "/Graphs")
 
         with open(profile_name + "_Lip_Data/" + filename + "/" + filename + "_Video_Raw.csv", "r") as f:
             # else if only raw .csv files can be found, read raw data from them and analyze them
@@ -282,11 +285,26 @@ def process_video(filepath, filename, profile_name):
                  color="#0000ff", zorder=10)
         axp.plot([curr * 0.2, next * 0.2], [0.05, 0.05], "--", linewidth=2.5, color="#007f00", zorder=10)
         axs.fill_between(np.arange(0.2 * curr, 0.2 * next, 0.2), slots[curr:next], 0, color="#ffcf9f", zorder=-10)
-        plt.savefig(filepath + "Plots/Fig_" + str(i) + ".png", bbox_inches="tight")
+        plt.savefig(profile_name + "_Lip_Data/" + filename + "/" + str(i) + ".png", bbox_inches="tight")
 
 
 '''
+This file is tested to work only under the following version:
+Python 3.5.6
+Tensorflow 1.9.0
+Keras 2.2.0
+cv2 4.1.2
+matplotlib 3.0.0
+numpy 1.14.2
+pandas 0.23.4
 
+This file reads all participant 2 videos from 'Deployment 2019/Participant_2' directory, analyze each video frame by
+frame and determine the participant's lip movement. It outputs csv files containing the results and plots visualizing
+them, and if desired, frames to be compiled into a demo video (using ffmpeg would do the job).
+When ran again with .csv files already saved, it will read data from the .csv files and analyze them straightly
+
+To change a participant, replace all instances of 'Participant_2' in main();
+To enable outputting frames of a demo video, replace line 286 with comment instructions from line 287
 '''
 
 def main():
